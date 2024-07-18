@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script type="module" src="/entity_maker.js" ></script>
+    <link rel="stylesheet" href="/entity_maker.css" />
+  </head>
+  <body>
+    <div id="entity_maker_div"></div>
+    <p></p>
+    <button id="submit_button"> Submit Data </button>
+    <hr>
+    <p id="show_data"></p>
+
+    <script type="module">
+      import { EntityManager, get_data } from '/entity_maker.js'
+
+      const human_config = {
+        name: "human",
+        properties: [
+          {
+            name: "height",
+            type: "float",
+            units: "inches",
+            min: 0.0,
+            max: 100.0,
+            default: 69.0
+          }
+        ]
+      }
+
+      const manager_config = {
+        name: "humans",
+        keep_sorted: true,
+        entities: [human_config]
+      }
+
+      const manager = new EntityManager(manager_config)
+
+      entity_maker_div.appendChild(manager.domElement)
+      submit_button.addEventListener("click", (event) => {
+        show_data.innerText = "get_data() = " + get_data()
+      })
+    </script>
+  </body>
+</html>

@@ -1,0 +1,208 @@
+/* Copyright (c) 2024 David McDougall
+   Released under the MIT License */
+
+:root {
+    --ridge: 4px;
+    --margin: 20px;
+    --font-size: 1.25rem;;
+}
+
+* {
+  font-family: sans-serif;
+}
+
+/* Top-level container for managing a list of entities */
+.manager {
+    display: inline-grid;
+    grid-template-columns: auto auto;
+    margin: 5px var(--margin);
+    column-gap: calc(2 * var(--margin));
+}
+
+.manager .title {
+    text-align: center;
+}
+
+/* Container for the buttons at the top of the managerDiv */
+.managerButtonDiv {
+    display: flex;
+/*    flex-flow: row wrap;*/
+    flex-flow: column nowrap;
+    font-size: var(--font-size);
+    width: 15em;
+}
+
+/* Buttons for managing entities: create, rename, duplicate, delete, move-up, move-down */
+.managerButton {
+    flex-grow: 1; /* Make the buttons expand to fill the available space. */
+    text-transform: capitalize;
+    border: outset var(--ridge);
+    border-radius: var(--ridge);
+    margin: 2px;
+    font-size: var(--font-size);
+}
+
+.managerButton:active {
+    border: inset var(--ridge);
+}
+
+/* Container for the list of entities in the managerDiv */
+.managerEntityList {
+    display: flex;
+    flex-flow: column nowrap;
+    overflow-y: auto;
+    max-height: 20lh;
+    margin-top: 1lh;
+    border: inset var(--ridge);
+}
+
+/* Buttons in the entity list. */
+.managerEntityButton {
+    width: inherit;
+    padding: 5px;
+    border: none;
+    font-size: var(--font-size);
+}
+
+/* Marker for the currently selected entity. */
+.managerEntityButtonSelected {
+    background-color: SteelBlue;
+}
+
+/* Create / Duplicate / Rename / Delete entity dialog windows */
+dialog {
+    border: ridge calc(2 * var(--ridge));
+    border-radius: calc(2 * var(--ridge));
+}
+dialog p {
+    font-size: var(--font-size);
+}
+dialog * {
+    margin: 5px 10px;
+}
+dialog input[type=text] {
+    border: inset var(--ridge);
+}
+dialog input[type=submit], dialog input[type=reset] {
+    min-width: 4em;
+    border: outset var(--ridge);
+    border-radius: var(--ridge);
+}
+dialog input[type=submit]:active, dialog input[type=reset]:active {
+    border: inset var(--ridge);
+}
+dialog::backdrop {
+    background-color: rgb(0 0 0 / 25%);
+    /* Nice effect but I think it's too distracting.
+    background: repeating-linear-gradient(
+        -30deg,
+        rgb(0 0 0 / 20%) 0,
+        rgb(0 0 0 / 20%) 1px,
+        rgb(0 0 0 / 0) 1px,
+        rgb(0 0 0 / 0) 15px
+    ); */
+}
+
+/* Top-level container for the settings panel of an entity type */
+.editor {
+    min-width: 40em;
+    max-height: inherit;
+}
+
+/* Container for all of the input widgets for an entity type */
+.editorForm {
+    display: inline-grid;
+    grid-template-columns: max-content max-content max-content;
+    column-gap: var(--margin);
+    row-gap: 1lh;
+    align-items: center;
+}
+
+.editorHeader {
+    grid-column: 1 / span 3;
+    margin-bottom: 1lh;
+}
+
+.editor .title {
+    text-align: left;
+    margin-left: 2em;
+}
+
+/* First column labels. */
+.editorForm > label {
+    /* Set position so that tooltips can use absolute position based off of the label's position */
+    position: relative;
+}
+
+/* Second column property input widgets. */
+.editorForm input[type=number] {
+    /* Hint to the webview: don't exaggerate the input sizes. */
+    height: 1lh;
+}
+
+/* Hide the file input button, use a custom button instead. */
+.editorForm input[type=file] {
+    position: absolute !important;
+    height: 1px;
+    width: 1px;
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px);
+    opacity: 0%;
+}
+
+.editorForm option {
+    text-align: center;
+}
+
+.inputFile {
+    border: outset var(--ridge);
+    border-radius: var(--ridge);
+    padding: 5px 10px;
+    background-color: lightgrey;
+}
+.inputFile:active {
+    border: inset;
+}
+
+/* Third column of the editorForm for misc info. */
+.editorForm > output, .editorForm > p {
+    text-align: left;
+    margin: 0;
+}
+
+.tooltip {
+    /* Position the tooltip */
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 2em;
+
+    /* Fade in tooltip */
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.3s;
+
+    width: 20em;
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    text-transform: initial;
+    font-style: initial;
+    padding: 5px;
+    border-radius: 5px;
+}
+label:hover > .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Common Classes */
+
+.description {
+    font-style: italic;
+    text-align: center;
+}
+
+button:enabled:hover, input[type=submit]:hover, input[type=reset]:hover, .inputFile:hover {
+    filter: brightness(0.85);
+}
