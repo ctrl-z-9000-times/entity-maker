@@ -17,19 +17,31 @@ class EntityEditor {
         this.domElement = document.createElement("div")
         this.domElement.classList.add("editor")
         // Put the input widgets into an HTML form.
-        this.form = document.createElement("form")
-        this.form.id = this.name
-        this.form.classList.add("editorForm")
-        this.domElement.appendChild(this.form)
+        this._form = document.createElement("form")
+        this._form.id = this.name
+        this._form.classList.add("editorForm")
+        this.domElement.appendChild(this._form)
         // 
-        this.form.appendChild(this._make_header())
+        this._form.appendChild(this._make_header())
         // 
         for (const prop of this.properties) {
             this._clean_property_config(prop)
             this._make_input_row(prop)
         }
-        // 
+        // Register this class, globally.
         _add_entity_class(this)
+        // Setup callbacks for undo/redo.
+        if (!this.manager) {
+            this.domElement.addEventListener("change", (event) => {
+                if (event.isTrusted && _history_limit) {
+                    _record_action({
+                        class: this,
+                        action: "change",
+                        entity: this.get_data(),
+                    })
+                }
+            })
+        }
     }
 
     // Make a panel displaying this entity's title and description.
@@ -73,6 +85,13 @@ class EntityEditor {
         else if (prop["type"] == "filename") {
             prop["type"] = "file"
         }
+        else if (prop["type"] == "xref" || prop["type"] == "crossreference") {
+            prop["type"] = "entity"
+        }
+        // Check for valid property type.
+        const all_types = ["float", "int", "bool", "enum", "file", "entity"]
+        console.assert(all_types.includes(prop["type"]),
+            "Unrecognized property type \"%s\", in \"%s:%s\"", prop["type"], this.name, prop["name"])
         // Normalize the abbreviations.
         _get_aliased(prop, "description", "desc")
         _get_aliased(prop, "min", "minimum")
@@ -100,45 +119,51 @@ class EntityEditor {
         console.assert(prop["name"] != "name")
         console.assert(prop["name"] != "type")
         // Check for required fields & invalid field combinations.
+        const assert_present = (prop, field) => {
+            console.assert(prop[field] !== undefined, "Missing attribute \"%s\" on \"%s:%s\"", field, this.name, prop["name"])
+        }
+        const assert_missing = (prop, field) => {
+            console.assert(prop[field] === undefined, "Unexpected attribute \"%s\" on \"%s:%s\"", field, this.name, prop["name"])
+        }
         if (prop["type"] != "float" && prop["type"] != "int") {
-            console.assert(prop["min"] === undefined)
-            console.assert(prop["max"] === undefined)
-            console.assert(prop["step"] === undefined)
+            assert_missing(prop, "min")
+            assert_missing(prop, "max")
+            assert_missing(prop, "step")
         }
         if (prop["type"] == "enum") {
-            console.assert(prop["values"] !== undefined)
+            assert_present(prop, "values")
         }
         else {
-            console.assert(prop["values"] === undefined)
+            assert_missing(prop, "values")
         }
         if (prop["type"] == "entity") {
-            console.assert(prop["targets"] !== undefined)
+            assert_present(prop, "targets")
         }
         else {
-            console.assert(prop["targets"] === undefined)
+            assert_missing(prop, "targets")
         }
         if (prop["type"] != "entity" && prop["type"] != "file") {
-            console.assert(prop["multiple"] === undefined)
+            assert_missing(prop, "multiple")
         }
         if (prop["type"] != "file") {
-            console.assert(prop["accept"] === undefined)
+            assert_missing(prop, "accept")
         }
         // Check default value is valid
         if (prop["type"] == "float" || prop["type"] == "int") {
-            console.assert(prop["default"] !== undefined)
+            assert_present(prop, "default")
             console.assert(Number.isFinite(prop["default"]))
             if (prop["min"] !== undefined) { console.assert(prop["default"] >= prop["min"]) }
             if (prop["max"] !== undefined) { console.assert(prop["default"] <= prop["max"]) }
         }
         else if (prop["type"] == "bool") {
-            console.assert(prop["default"] !== undefined)
+            assert_present(prop, "default")
         }
         else if (prop["type"] == "enum") {
-            console.assert(prop["default"] !== undefined)
+            assert_present(prop, "default")
             console.assert(prop["values"].find(prop["default"]))
         }
         else {
-            console.assert(prop["default"] === undefined)
+            assert_missing(prop, "default")
         }
     }
 
@@ -167,7 +192,7 @@ class EntityEditor {
         label.htmlFor = this._get_property_name(prop)
         label.innerText = title
         label.classList.add("title")
-        this.form.appendChild(label)
+        this._form.appendChild(label)
         // Make tool-tips over the labels with the property descriptions.
         if (prop["description"]) {
             const tooltip = document.createElement("span")
@@ -197,8 +222,8 @@ class EntityEditor {
         else {
             console.warn("Unrecognized value type " + prop["type"])
             // Make two empty div's to complete the row.
-            this.form.appendChild(document.createElement("div"))
-            this.form.appendChild(document.createElement("div"))
+            this._form.appendChild(document.createElement("div"))
+            this._form.appendChild(document.createElement("div"))
         }
     }
 
@@ -232,7 +257,7 @@ class EntityEditor {
         input.max = prop["max"]
         input.step = prop["step"]
         input.value = prop["default"]
-        this.form.appendChild(input)
+        this._form.appendChild(input)
 
         // Display the current value and physical units in the third column.
         const output   = document.createElement("output")
@@ -246,7 +271,7 @@ class EntityEditor {
         }
         update_output_label()
         input.addEventListener("input", update_output_label)
-        this.form.appendChild(output)
+        this._form.appendChild(output)
     }
 
     _make_number(prop) {
@@ -256,20 +281,20 @@ class EntityEditor {
         input.max = prop["max"]
         input.step = prop["step"]
         input.value = prop["default"]
-        this.form.appendChild(input)
+        this._form.appendChild(input)
 
         // 
-        this.form.appendChild(this._make_units_node(prop))
+        this._form.appendChild(this._make_units_node(prop))
     }
 
     _make_checkbox(prop) {
         const input = this._make_input_node(prop)
         input.type = "checkbox"
         input.checked = prop["default"]
-        this.form.appendChild(input)
+        this._form.appendChild(input)
 
         // 
-        this.form.appendChild(this._make_units_node(prop))
+        this._form.appendChild(this._make_units_node(prop))
     }
 
     _make_radio_butons(prop) {
@@ -283,38 +308,40 @@ class EntityEditor {
 
         // TODO
 
-        this.form.appendChild(this._make_units_node(prop))
+        this._form.appendChild(this._make_units_node(prop))
     }
 
     _make_file(prop) {
+        // List of pairs of [file-name, content-blob]
+        prop["value"] = []
+
         // 
-        const label = this.form.lastElementChild
+        const label = this._form.lastElementChild
 
         // The file input is hidden.
         const input = this._make_input_node(prop)
         input.type = "file"
         input.accept   = prop["accept"]
         input.multiple = prop["multiple"]
-        this.form.appendChild(input)
+        this._form.appendChild(input)
 
         // Make a stylized button to replace the hidden input widget.
         const button = document.createElement("label")
         button.htmlFor = this._get_property_name(prop)
         button.innerText = "Select File"
         button.classList.add("inputFile")
-        this.form.appendChild(button)
+        this._form.appendChild(button)
 
         // 
-        const this_ = this
         input.addEventListener("change", () => {
-            this_._file_callback(prop, input.files)
+            this._file_callback(prop, input.files)
         });
 
         // 
         const output   = document.createElement("output")
         output.htmlFor = input.id
         prop["output"] = output
-        this.form.appendChild(output)
+        this._form.appendChild(output)
 
         this._install_drag_and_drop(label,  prop)
         this._install_drag_and_drop(button, prop)
@@ -327,12 +354,9 @@ class EntityEditor {
             event.stopPropagation()
             event.preventDefault()
         }
-        const this_ = this
-        function drop(event) {
+        const drop = (event) => {
             stop_event(event)
-            const dt = event.dataTransfer
-            const files = dt.files
-            this_._file_callback(prop, files)
+            this._file_callback(prop, event.dataTransfer.files)
         }
         element.addEventListener("dragenter", stop_event, false);
         element.addEventListener("dragover", stop_event, false);
@@ -340,30 +364,55 @@ class EntityEditor {
     }
 
     _file_callback(prop, file_list) {
-        prop["file"] = [] // List of file names
-        prop["data"] = [] // List of file content blobs
-        if (file_list.length == 0) {
-            prop["output"].value = "No files selected"
-            return
-        }
-        prop["output"].value = "Loading files ..."
-        for (const file of file_list) {
+        // Setup storaget for the property's value.
+        file_list = Array.from(file_list)
+        prop["value"] = file_list.map((file) => [file.name, null])
+        // Read the files.
+        for (let index = 0; index < file_list.length; index++) {
             const reader = new FileReader()
             reader.onload = (event) => {
-                prop["file"].push(file.name)
-                prop["data"].push(event.target.result)
-                prop["output"].value = prop["file"].join()
+                prop["value"][index][1] = event.target.result
+                this._update_file_status_message(prop)
+                prop["input"].dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true }))
             }
+            const file = file_list[index]
             reader.readAsDataURL(file)
+        }
+    }
+
+    // Update the file-input status message.
+    _update_file_status_message(prop) {
+        const value    = prop["value"]
+        const output   = prop["output"]
+        const multiple = prop["multiple"]
+        // 
+        if (value.length == 0) {
+            if (multiple) {
+                output.value = "No files selected"
+            }
+            else {
+                output.value = "No file selected"
+            }
+        }
+        else if (value.some(([filename, blob]) => blob === null)) {
+            if (multiple) {
+                output.value = "Loading files ..."
+            }
+            else {
+                output.value = "Loading file ..."
+            }
+        }
+        else {
+            output.value = value.map(([filename, blob]) => filename).join(", ")
         }
     }
 
     _make_entity(prop) {
         const input = this._make_input_node(prop, "select")
         input.multiple = prop["multiple"]
-        this.form.appendChild(input)
+        this._form.appendChild(input)
 
-        this.form.appendChild(document.createElement("div")) // Third column placeholder.
+        this._form.appendChild(document.createElement("div")) // Third column placeholder.
     }
 
     _deselect_all_entities(prop) {
@@ -448,12 +497,12 @@ class EntityEditor {
         const entity = {type: this.name}
         for (const prop of this.properties) {
             const name = prop["name"]
-            // Special case for files.
-            if (prop["type"] == "file") {
-                entity[name] = [[], []]
+            // Guard against misconfigured properties.
+            if (!name) {
+                continue
             }
-            // Special case for entity cross references.
-            else if (prop["type"] == "entity") {
+            // Special case for files and entity cross references.
+            if (prop["type"] == "file" || prop["type"] == "entity") {
                 if (prop["multiple"]) {
                     entity[name] = []
                 }
@@ -473,10 +522,10 @@ class EntityEditor {
     get_data() {
         const entity = this.get_defaults()
         for (const prop of this.properties) {
-            const name = prop["name"]
+            const name  = prop["name"]
             const input = prop["input"]
             // Guard against missing / misconfigured properties.
-            if (input === undefined) {
+            if (!name || !input) {
                 continue
             }
             // Special case for checkboxes.
@@ -485,9 +534,19 @@ class EntityEditor {
             }
             // Special case for files.
             else if (prop["type"] == "file") {
-                entity[name] = [prop["file"], prop["data"]]
+                if (prop["multiple"]) {
+                    entity[name] = prop["value"].map((pair) => Array.from(pair)) // Shallow copy to protect internal data structures.
+                }
+                else {
+                    if (prop["value"].length > 0) {
+                        entity[name] = Array.from(prop["value"][0])
+                    }
+                    else {
+                        entity[name] = null
+                    }
+                }
             }
-            // Special case for mutliple entity cross references.
+            // Special case for multiple entity cross references.
             else if (prop["type"] == "entity" && prop["multiple"]) {
                 entity[name] = Array.from(input.selectedOptions).map((option) => option.value)
             }
@@ -509,10 +568,21 @@ class EntityEditor {
     // Missing fields are filled in with their default value.
     // If the argument is missing then this resets the entire form to its default state.
     set_data(entity = {}) {
+        // Emit all before-input events before updating any of the form.
+        for (const prop of this.properties) {
+            const input = prop["input"]
+            if (input) {
+                input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true }))
+            }
+        }
         const defaults = this.get_defaults()
         for (const prop of this.properties) {
             const name  = prop["name"]
             const input = prop["input"]
+            // Guard against missing / misconfigured properties.
+            if (!name || !input) {
+                continue
+            }
             // Fill in the data object with default values as necessary.
             let value = entity[name]
             if (value === undefined) {
@@ -522,18 +592,22 @@ class EntityEditor {
             if (value === undefined) {
                 continue
             }
-            // 
-            input.dispatchEvent(new InputEvent("beforeinput"))
             // Special case for checkboxes.
             if (prop["type"] == "bool") {
                 input.checked = value
             }
             // Special case for files.
             else if (prop["type"] == "file") {
-                const [file, data] = value
-                prop["file"] = file
-                prop["data"] = data
-                prop["output"].value = file.join()
+                if (!value) {
+                    prop["value"] = []
+                }
+                else if (prop["multiple"]) {
+                    prop["value"] = value
+                }
+                else {
+                    prop["value"] = [value]
+                }
+                this._update_file_status_message(prop)
             }
             // Special case for entity cross references.
             else if (prop["type"] == "entity") {
@@ -557,9 +631,6 @@ class EntityEditor {
             else {
                 input.value = value
             }
-            // 
-            input.dispatchEvent(new InputEvent("input"))
-            input.dispatchEvent(new Event("change"))
         }
         // Update the title.
         const name = entity["name"]
@@ -568,6 +639,14 @@ class EntityEditor {
         }
         else {
             this._title_element.innerText = `Edit ${this.title}`
+        }
+        // Emit the input-change events after updating the entire form.
+        for (const prop of this.properties) {
+            const input = prop["input"]
+            if (input) {
+                input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true }))
+                input.dispatchEvent(new Event("change",     { bubbles: true, cancelable: true }))
+            }
         }
     }
 
@@ -609,7 +688,7 @@ class EntityManager {
         this.delete_hooks   = []
         // Check for required fields.
         console.assert(this.name)
-        console.assert(this.entity_configs)
+        console.assert(this.entity_configs && this.entity_configs.length)
 
         // Setup the internal data structures.
         this._entities = []
@@ -626,8 +705,10 @@ class EntityManager {
             const editor = new EntityEditor(entity_config, this)
             this._entity_editors[editor.name] = editor
             editor.domElement.style.display = "none"
-            editor.domElement.addEventListener("input", (event) => {
-                this._activate_change_hook()
+            editor.domElement.addEventListener("change", (event) => {
+                if (event.isTrusted) {
+                    this._activate_change_hook()
+                }
             })
             this.domElement.appendChild(editor.domElement)
         }
@@ -708,12 +789,12 @@ class EntityManager {
         if (!this.keep_sorted) {
             const move_up = make_button("Move Up")
             move_up.addEventListener("click", () => {
-                this._move_up()
+                this._move(-1)
             })
 
             const move_down = make_button("Move Down")
             move_down.addEventListener("click", () => {
-                this._move_down()
+                this._move(+1)
             })
 
             this._control_buttons.push(move_up)
@@ -733,7 +814,7 @@ class EntityManager {
         }
     }
 
-    /// Modal dialog prompting the user for new a entity name.
+    // Modal dialog prompting the user for new a entity name.
     _make_name_dialog() {
         this._name_dialog = document.createElement("dialog")
         // 
@@ -796,7 +877,7 @@ class EntityManager {
 
     // Button on-click callback.
     _ask_rename() {
-        const name = this._get_selected_name()
+        const name = this.get_selected_name()
         if (!name) {
             return
         }
@@ -807,7 +888,7 @@ class EntityManager {
 
     // Button on-click callback.
     _ask_duplicate() {
-        const name = this._get_selected_name()
+        const name = this.get_selected_name()
         if (!name) {
             return
         }
@@ -851,7 +932,7 @@ class EntityManager {
 
     // Button on-click callback.
     _ask_delete() {
-        const name = this._get_selected_name()
+        const name = this.get_selected_name()
         if (!name) {
             return
         }
@@ -896,34 +977,47 @@ class EntityManager {
         }
     }
 
-    _select(index) {
+    // Select an entity by its index in the entity list.
+    select_index(index) {
         index = Math.round(index)
-        if (index >= this._entities.length) {
-            console.error(`Selected index out of bounds ${index}`)
+        if (index == this._selected) {
             return
         }
-        if (index < 0) {
-            this._deselect()
-            this._selected = index
+        const prev_selected = this._selected >= 0
+        this._deselect()
+        if (index >= this._entities.length) {
+            console.error("Selected index out of bounds %s", index)
+            return
+        }
+        this._selected = index
+        if (this._selected < 0) {
             this._disable_buttons()
             return
         }
-        if (this._selected < 0) {
+        if (!prev_selected) {
             this._enable_buttons()
         }
-        this._selected = index
-        if (this._selected >= 0) {
-            // Apply the CSS style class.
-            this._entity_list.children[this._selected].classList.add("managerEntityButtonSelected")
-            // Populate and display the appropriate entity editor.
-            const entity        = this._entities[this._selected]
-            const entity_editor = this._entity_editors[entity["type"]]
-            entity_editor.set_data(entity)
-            entity_editor.domElement.style.display = ""
-            // Notify the user via the optional callback hook.
-            for (const callback of this.select_hooks) {
-                callback(entity)
-            }
+        // Apply the CSS style class.
+        this._entity_list.children[this._selected].classList.add("managerEntityButtonSelected")
+        // Populate and display the appropriate entity editor.
+        const entity        = this._entities[this._selected]
+        const entity_editor = this._entity_editors[entity["type"]]
+        entity_editor.set_data(entity)
+        entity_editor.domElement.style.display = ""
+        // Notify the user via the optional callback hook.
+        for (const callback of this.select_hooks) {
+            callback(Object.assign({}, entity), this._selected)
+        }
+    }
+
+    // Select the named entity.
+    select_name(name) {
+        const index = this.get_index(name)
+        if (index === undefined) {
+            console.error("No such entity %s", name)
+        }
+        else {
+            this.select_index(index)
         }
     }
 
@@ -933,14 +1027,15 @@ class EntityManager {
             // Clear the CSS style class.
             this._entity_list.children[this._selected].classList.remove("managerEntityButtonSelected")
             // Gather the latest data from the entity editor before it's gone.
-            const entity = this.get_selected()
+            const entity   = this.get_selected()
+            const index    = this._selected
             this._selected = -1
             // Hide the entity editor.
             const entity_editor = this._entity_editors[entity["type"]]
             entity_editor.domElement.style.display = "none"
             // Notify the user via the optional callback hook.
             for (const callback of this.deselect_hooks) {
-                callback(entity)
+                callback(Object.assign({}, entity), index)
             }
             return entity
         }
@@ -948,11 +1043,12 @@ class EntityManager {
 
     // Notify the user that an entity's value changed via the optional callback hook.
     _activate_change_hook() {
-        if (this.change_hooks.length) {
-            const entity = this.get_selected()
-            for (const callback of this.change_hooks) {
-                callback(entity)
-            }
+        const entity = this.get_selected()
+        if (!entity) {
+            return
+        }
+        for (const callback of this.change_hooks) {
+            callback(Object.assign({}, entity), this._selected)
         }
     }
 
@@ -983,38 +1079,33 @@ class EntityManager {
     }
 
     // Returns the name of the currently selected entity, or undefined if nothing is selected.
-    // This does *not* pull the latest data from the entity editor.
-    _get_selected_name() {
+    get_selected_name() {
         if (this._selected >= 0) {
             return this._entities[this._selected]["name"]
         }
     }
 
-    // Select an entity by its index in the entity list.
-    select_index(index) {
-        index = Math.round(index)
-        if (index != this._selected) {
-            this._deselect()
-            this._select(index)
+    // Returns the index of the named entity, or undefined if it's not found within this manager.
+    get_index(name) {
+        const index = this._entities.findIndex((entity) => entity["name"] == name)
+        if (index >= 0) {
+            return index
         }
-    }
-
-    // Select the named entity.
-    select_name(name) {
-        for (const index in this._entities) {
-            if (this._entities[index]["name"] == name) {
-                this.select_index(index)
-                return
-            }
-        }
-        console.error(`No such entity ${name}`)
     }
 
     // Returns a copy of the entire entity list, including any modifications
     // currently being made by the editor.
     get_data() {
-        this.get_selected() // Update our internal data from the editor's form.
-        return Array.from(this._entities)
+        // Update our internal data from the editor's form.
+        this.get_selected()
+        // If we alphabetized the entities then return them in a dictionary, indexed by entity name.
+        if (this.keep_sorted && typeof this.keep_sorted != 'function') {
+            return Object.fromEntries(this._entities.map((entity) => [entity.name, Object.assign({}, entity)]))
+        }
+        else {
+            // Shallow copy the entities to protect our internal data structures.
+            return this._entities.map((entity) => Object.assign({}, entity))
+        }
     }
 
     // Set the entity list to the given list of entity objects.
@@ -1022,48 +1113,141 @@ class EntityManager {
     set_data(entity_list) {
         this._deselect()
         this._disable_buttons()
-        this._entities = entity_list ? Array.from(entity_list) : []
+        // Shallow copy the entities so that the user can't modify our internal data structures.
+        if (entity_list instanceof Array) {
+            this._entities = entity_list.map((entity) => Object.assign({}, entity))
+        }
+        else if(entity_list instanceof Object) {
+            this._entities = Object.entries(entity_list).map(([attribute_name, entity]) => {
+                entity = Object.assign({}, entity) // Shallow copy.
+                const entity_name = entity["name"]
+                if (entity_name === undefined) {
+                    entity["name"] = attribute_name
+                }
+                else {
+                    console.assert(attribute_name == entity_name)
+                }
+                return entity
+            })
+        }
+        else {
+            this._entities = []
+        }
+        // Discard entities with missing "name" or invalid "type" attributes.
+        this._entities = this._entities.filter((entity) => {
+            const name = entity["name"]
+            console.assert(name, "Missing attribute \"name\" on %s entity", this.name)
+            return name
+        })
+        const entity_types = this.entity_configs.map((entity_config) => entity_config.name)
+        const entity_types_str = entity_types.join()
+        this._entities = this._entities.filter((entity) => {
+            const type = entity["type"]
+            if (!type && entity_types.length == 1) {
+                entity["type"] = entity_types[0]
+                return true
+            }
+            console.assert(type, "Missing attribute \"type\" on %s entity \"%s\"", this.name, entity["name"])
+            console.assert(entity_types.includes(type),
+                "Invalid type \"%s\" on %s entity \"%s\" (expected one of: %s)",
+                type, this.name, entity["name"], entity_types_str)
+            return type && entity_types.includes(type)
+        })
+        // 
         this._make_selector()
         this._update_cross_references()
         // Notify the user via the optional callback hook.
         for (const callback of this.set_data_hooks) {
-            callback()
+            callback(this._entities.map((entity) => Object.assign({}, entity)))
         }
     }
 
-    // Create a new entity with the given name.
+    // Returns the named entity, or undefined if it's not found within this manager.
+    get_entity(name_or_index) {
+        let index = undefined
+        if (typeof name_or_index === 'string' || name_or_index instanceof String) {
+            index = this._entities.findIndex((entity) => entity["name"] == name)
+        }
+        else {
+            index = Math.round(name_or_index)
+        }
+        if (index == this._selected) {
+            return this.get_selected()
+        }
+        else {
+            return this._entities[index]
+        }
+    }
+
+    /*
+    //
+    set_entity(entity, index=undefined) {
+        // todo
+    }
+    */
+
+    // Create a new entity with the given name and default values.
     _create(entity_editor, name) {
         this._deselect()
         // Make a new entity with default values.
-        const entity = entity_editor.get_defaults()
+        const entity   = entity_editor.get_defaults()
         entity["name"] = name
         entity["type"] = entity_editor.name
-        // Insert the new item and select it.
-        this._entities.push(entity)
+
+        this._add_entity(entity)
+    }
+
+    // Duplicate the currently selected entity, apply the given name.
+    _duplicate(name) {
+        const entity      = this._deselect()
+        const duplicate   = {... entity}
+        duplicate["name"] = name
+
+        this._add_entity(entity)
+    }
+
+    _add_entity(entity, index=undefined, record_history=true) {
+        this._deselect()
+        // Insert the new item.
+        if (index === undefined) {
+            this._entities.push(entity)
+        }
+        else {
+            this._entities.splice(index, 0, entity)
+        }
+        // Update the UI.
         this._make_selector()
-        this.select_name(name)
         this._update_cross_references()
+        index = this.get_index(entity["name"])
+        // Record this action into the undo/redo history.
+        if (_history_limit && record_history) {
+            _record_action({
+                class: this,
+                type: "create",
+                entity: Object.assign({}, entity),
+                index: index,
+            })
+        }
         // Notify the user via the optional callback hook.
         for (const callback of this.create_hooks) {
-            callback(entity)
+            callback(Object.assign({}, entity), index)
         }
+        // Select the new item after notifying the user of its existence.
+        this.select_index(index)
     }
 
     // Delete the currently selected entity.
-    _delete() {
-        // Notify the user via the optional callback hook. Do this before
-        // actually deleting the object so that both the "get_selected()"
-        // and "get_selected_index()" methods still work correctly.
-        if (this.delete_hooks.length) {
-            const entity = this.get_selected()
-            if (entity) {
-                for (const callback of this.delete_hooks) {
-                    callback(entity)
-                }
-            }
+    _delete(index=undefined, record_history=true) {
+        let entity = undefined
+        if (index === undefined) {
+            index  = this._selected
+            entity = this._deselect()
         }
-        const index = this._selected
-        const entity = this._deselect()
+        else {
+            this._deselect()
+            entity = this._entities[index]
+        }
+        // Guard against nothing selected / invalid index.
         if (!entity) {
             return
         }
@@ -1071,13 +1255,36 @@ class EntityManager {
         this._disable_buttons()
         this._make_selector()
         this._update_cross_references()
+        // Record this action into the undo/redo history.
+        if (_history_limit && record_history) {
+            _record_action({
+                class: this,
+                action: "delete",
+                entity: Object.assign({}, entity),
+                index: index,
+            })
+        }
+        // Notify the user via the optional callback hook.
+        for (const callback of this.delete_hooks) {
+            callback(Object.assign({}, entity), index)
+        }
     }
 
     // Rename the currently selected entity to the given name.
-    _rename(new_name) {
-        new_name       = new_name.trim()
-        const entity   = this._deselect()
-        const old_name = entity["name"]
+    _rename(new_name, old_name=undefined, record_history=true) {
+        new_name      = new_name.trim()
+        let old_index = undefined
+        let entity    = undefined
+        if (old_name === undefined) {
+            old_index = this._selected
+            entity    = this._deselect()
+            old_name  = entity["name"]
+        }
+        else {
+            this._deselect()
+            old_index = this.get_index(old_name)
+            entity    = this._entities[old_index]
+        }
         if (!entity || !new_name || old_name == new_name) {
             return
         }
@@ -1089,11 +1296,21 @@ class EntityManager {
             entity_class._rename_callback(old_name, new_name)
         }
         this._update_cross_references()
+        const new_index = this.get_index(new_name)
+        // Record this action into the undo/redo history.
+        if (_history_limit && record_history) {
+            _record_action({
+                class: this,
+                action: "rename",
+                old_name: old_name,
+                new_name: new_name,
+            })
+        }
         // Notify the user via the optional callback hook.
         for (const callback of this.rename_hooks) {
-            callback(old_name, new_name)
+            callback(old_name, new_name, old_index, new_index)
         }
-        this.select_name(new_name)
+        this.select_index(new_index)
     }
 
     // Find and replace all cross references to a renamed entity.
@@ -1123,67 +1340,41 @@ class EntityManager {
         }
     }
 
-    // Duplicate the currently selected entity, apply the given name.
-    _duplicate(name) {
-        const entity = this._deselect()
-        // Make a new entity with default values.
-        const duplicate = {... entity}
-        duplicate["name"] = name
-        // Insert the new item and select it.
-        this._entities.push(duplicate)
-        this._make_selector()
-        this.select_name(name)
-        this._update_cross_references()
-        // Notify the user via the optional callback hook.
-        for (const callback of this.create_hooks) {
-            callback(duplicate)
-        }
-    }
-
     // Button on-click callback.
-    _move_up() {
-        if (this._selected < 1) {
+    _move(direction, index=undefined, record_history=true) {
+        if (index === undefined) {
+            index = this._selected
+            if (index < 0) {
+                return
+            }
+        }
+        else {
+            this.select_index(index)
+        }
+        // Swap the selected item up/down one row.
+        const swap = index + direction
+        // Guard against swapping out of bounds.
+        if (swap < 0 || swap >= this._entities.length) {
             return
         }
-        // Swap the selected item up one row.
-        const index = this._selected
-        const swap  = index - 1
-        const tmp   = this._entities[swap]
-        this._entities[swap] = this._entities[index]
+        // Perform the swap on the underlying data.
+        const tmp = this._entities[swap]
+        this._entities[swap]  = this._entities[index]
         this._entities[index] = tmp
-        // 
-        this._selected -= 1
+        // Don't deselect/reselect, instead just modify the selected index.
+        this._selected = swap
         this._make_selector()
         this._update_cross_references()
-
+        // Record this action into the undo/redo history.
+        if (_history_limit && record_history) {
+            _record_action({
+                class: this,
+                action: "move",
+                index: index,
+                direction: direction,
+            })
+        }
         // Notify the user via the optional callback hook.
-        const entity = this.get_selected()
-        for (const callback of this.move_hooks) {
-            callback(swap, index)
-        }
-    }
-
-    // Button on-click callback.
-    _move_down() {
-        if (this._selected < 0) {
-            return
-        }
-        if (this._selected + 1 >= this._entities.length) {
-            return
-        }
-        // Swap the selected item down one row.
-        const index = this._selected
-        const swap  = index + 1
-        const tmp   = this._entities[swap]
-        this._entities[swap] = this._entities[index]
-        this._entities[index] = tmp
-        // 
-        this._selected += 1
-        this._make_selector()
-        this._update_cross_references()
-
-        // Notify the user via the optional callback hook.
-        const entity = this.get_selected()
         for (const callback of this.move_hooks) {
             callback(index, swap)
         }
@@ -1278,8 +1469,11 @@ function _validate_entity_name(name) {
     if (name.length == 0) {
         return "required field"
     }
-    // Check for duplicate names.
+    // Check for reserved & duplicate names.
     for (const entity_class of Object.values(_entity_classes)) {
+        if (entity_class.name == name) {
+            return "reserved name"
+        }
         if (entity_class instanceof EntityManager) {
             if (entity_class._entities.find((entity) => entity["name"] == name)) {
                 return "duplicate name"
@@ -1317,6 +1511,8 @@ function get_data() {
 // Set the data for all EntityEditors and EntityManagers, discarding any
 // existing data. Accepts an object or JSON string. Missing data is filled in
 // with default values. If no data is given then this resets the entire entity-maker.
+// 
+// This also clears the undo history buffer. Calling "set_data()" can not be undone.
 function set_data(json) {
     if (json === undefined || json === null || json == "") {
         json = {}
@@ -1327,14 +1523,141 @@ function set_data(json) {
     for (const [name, entity_class] of Object.entries(_entity_classes)) {
         entity_class.set_data(json[name])
     }
+    clear_undo_history()
 }
 
-export { EntityEditor, EntityManager, get_data, set_data }
+// 
+function get_entity(name) {
+    for (const entity_class of _entity_classes) {
+        if (entity_class.name == name) {
+            return entity_class
+        }
+        if (entity_class instanceof EntityManager) {
+            const entity = entity_class.get_entity(name)
+            if (entity) {
+                return entity
+            }
+        }
+    }
+}
+
+/*
+// 
+function set_entity(entity, index) {
+    // todo
+}
+*/
+
+// Keep track of the recent actions for undo/redo purposes.
+const _history_buffer = []
+const _history_limit  =  0
+let   _history_cursor = -1
+
+// Controls how many actions the user can undo at one time.
+// Setting this to zero disables the undo/redo feature altogether.
+function set_undo_limit(max_actions) {
+    _history_limit = Math.max(0, Math.round(parseFloat(max_actions)))
+    _discard_ancient_history()
+}
+
+// 
+function clear_undo_history() {
+    _history_buffer.splice(0)
+    _history_cursor = -1
+}
+
+function _record_action(data) {
+    if (!_history_limit) {
+        return
+    }
+    // Truncate the history buffer at the cursor.
+    if (_history_cursor < _history_buffer.length - 1) {
+        _history_buffer.splice(_history_cursor + 1, Infinity)
+    }
+    // Append the new action.
+    _history_buffer.push(data)
+    _history_cursor += 1
+
+    _discard_ancient_history()
+}
+
+// The history buffer only keeps a few recent actions for undo/redo.
+function _discard_ancient_history() {
+    // For efficiency, do this periodically instead of every action.
+    if (_history_buffer.length > 1.25 * _history_limit) {
+        _history_buffer.splice(0, _history_buffer.length - _history_limit)
+        _history_cursor = _history_buffer.length - 1
+    }
+}
+
+// 
+function undo() {
+    if (_history_cursor < 0) {
+        return
+    }
+    action = _history_buffer[_history_cursor]
+    action._undo()
+    _history_cursor -= 1
+}
+
+// 
+function redo() {
+    if (_history_cursor + 1 >= _history_buffer.length) {
+        return
+    }
+    _history_cursor += 1
+    action = _history_buffer[_history_cursor]
+    action._redo()
+}
+
+class Action {
+    constructor(entity_class, action_type, entity, index) {
+        this.class  = entity_class
+        this.type   = action_type
+        this.entity = entity
+        this.index  = index
+    }
+
+    _undo() {
+        if (this.type == "create") {
+            this.class._delete(this.index, false)
+        }
+        else if (this.type == "delete") {
+            this.class._add_entity(this.entity, this.index, false)
+        }
+        else if (this.type == "rename") {
+            this.class._rename(this.old_name, this.new_name, false)
+        }
+        else if (this.type == "move") {
+            this.class._move(-this.direction, this.index + this.direction, false)
+        }
+        else if (this.type == "change") {
+            // TODO
+        }
+    }
+
+    _redo() {
+        if (this.type == "create") {
+            this.class._add_entity(this.entity, this.index, false)
+        }
+        else if (this.type == "delete") {
+            this.class._delete(this.index, false)
+        }
+        else if (this.type == "rename") {
+            this.class._rename(this.new_name, this.old_name, false)
+        }
+        else if (this.type == "move") {
+            this.class._move(this.direction, this.index, false)
+        }
+        else if (this.type == "change") {
+            // TODO
+        }
+    }
+}
+
+export { EntityEditor, EntityManager, get_data, set_data, set_undo_limit, clear_undo_history, undo, redo }
 
 // TODO: Implement "enum" type properties, use radio buttons.
-
-// TODO: Consider deep-copying all data at the API boundary to prevent users
-//       from corrupting the entity-maker's internal data.
 
 // TODO: Search/filter entities by name.
 //       -> If there is an active search, then simply disable the move-up/down buttons.
@@ -1349,13 +1672,14 @@ export { EntityEditor, EntityManager, get_data, set_data }
 //     -> When undo-ing things call the manager's methods so that the action
 //        gets performed in the normal way and triggers the normal callback hooks.
 //        Including de/selecting the entities.
-//     -> Make the undo feature configurable, user sets the undo stack size,
-//        size zero disables the undo feature entirely.
-//     -> Expose API global-functions for "undo()" and "redo()"
-//     -> Expose pre-built undo & redo buttons.
+
+// TODO: Make function to copy entities at the public API.
+//     -> Currently this does not copy nested lists correctly (entity & file lists).
+//     -> Use builtin function "structuredClone(X)" instead of "Object.assign({}, X)" ?
 
 // TODO: Keyboard shortcuts:
 //     -> Arrow keys to selected different entity.
 //     -> Ctrl-Arrow keys to move selected entity.
 //     -> Delete key to delete selected entity.
 //     -> Ctrl-R to rename selected entity.
+//     -> Ctrl-Z & Ctrl-Shift-Z to undo/redo.

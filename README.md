@@ -48,6 +48,23 @@ Returns a JSON string.
 Set the data for all `EntityEditor` and `EntityManager` instances, discarding
 all previous data. Accepts an object or JSON string. Missing data is filled in
 with default values. If no data is given then this resets the entire entity-maker.
+\
+This also clears the undo history buffer. Calling `set_data()` can not be undone.
+
+* `get_entity(name)`  
+TODO DOCS
+
+* `set_undo_limit(max_actions)`  
+TODO DOCS
+
+* `clear_undo_history()`  
+TODO DOCS
+
+* `undo()`  
+TODO DOCS
+
+* `redo()`  
+TODO DOCS
 
 
 ## EntityEditor ##
@@ -205,6 +222,9 @@ You should insert this DOM element into your user interface.
 * `EntityManager.get_selected() -> entity or undefined`  
 Returns the currently selected entity, or undefined if nothing is selected.
 
+* `EntityManager.get_selected_name() -> String or undefined`  
+Returns the name of currently selected entity, or undefined if nothing is selected.
+
 * `EntityManager.get_selected_index() -> Number or undefined`  
 Returns the index of the currently selected entity, or undefined if nothing is selected.
 
@@ -214,6 +234,9 @@ Select an entity by its index in the entity list.
 * `EntityManager.select_name(name)`  
 Select the named entity.
 
+* `EntityManager.get_index(name)`  
+Returns the index of the named entity, or undefined if it's not found within this manager.
+
 * `EntityManager.get_data() -> entity_list`  
 Returns a copy of the entire entity list, including any modifications currently
 being made by the editor.    
@@ -221,6 +244,9 @@ being made by the editor.
 * `EntityManager.set_data(entity_list)`  
 Set the entity list to the given list of entity objects.  
 This discards all previously existing data from the entity manager.
+
+* `EntityManager.get_entity(name_or_index)`  
+Returns the named entity, or undefined if it's not found within this manager.
 
 * `EntityManager.get_entity_editor(entity_type) -> EntityEditor or undefined`  
 Returns the `EntityEditor` object with the given name, or undefined if it's not
@@ -230,21 +256,19 @@ found within this manager.
 ### Callback Hooks ###
 
 The EntityManager class provides callback hooks for certain events. These are
-lists of callable functions that you may append to.
+lists of callable functions that you may append to. The callbacks are
+invoked *after* the event in question.
 
-You may disregard the callback arguments and simply access the entities in
-question using the `get_selected()` and `get_selected_index()` methods.
-
-| Hook Name        | Trigger Event | Callback Arguments |
+| Hook Name        | Event Trigger | Callback Arguments |
 | ---------        | ------------- | ------------------ |
-| `select_hooks`   | An entity from the list was selected | The selected entity object |
-| `deselect_hooks` | An entity from the list stopped being selected | The deselected entity object |
+| `select_hooks`   | An entity from the list was selected | The selected entity object, and its index |
+| `deselect_hooks` | An entity from the list stopped being selected | The deselected entity object, and its index |
 | `set_data_hooks` | The entity manager received an entirely new entity list, via one of the `set_data()` functions | The new list of entity objects |
-| `create_hooks`   | A new entity was created | The new entity object |
-| `change_hooks`   | An entity was edited by the user | The updated entity object |
-| `delete_hooks`   | An entity was deleted | The deleted entity object |
-| `rename_hooks`   | An entity was renamed | The old and new names of the entity in that order |
-| `move_hooks`     | Two entities were reordered by the "Move Up" or "Move Down" buttons | The indices of the two entities which were swapped |
+| `create_hooks`   | A new entity was created | The new entity object, and its index |
+| `change_hooks`   | An entity was edited by the user | The updated entity object, and its index |
+| `delete_hooks`   | An entity was deleted | The deleted entity object, and its former index |
+| `rename_hooks`   | An entity was renamed | The old and new names of the entity, followed by the old and new indices |
+| `move_hooks`     | Two entities were explicitly reordered | The indices of the two entities which were swapped |
 
 
 ## Examples ##
